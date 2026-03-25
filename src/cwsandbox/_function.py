@@ -277,20 +277,12 @@ class RemoteFunction(Generic[P, R]):
         if self._annotations is not None:
             sandbox_kwargs["annotations"] = self._annotations
 
-        # Import here to avoid circular import
-        from cwsandbox._sandbox import Sandbox
-
-        # Create sandbox directly and use async start to avoid deadlock.
-        # session.sandbox() uses sync APIs which would deadlock when called
-        # from the daemon thread running this async method.
-        sandbox = Sandbox(
+        # Use the session's managed sandbox factory so wrapper sessions can
+        # customize sandbox construction without routing through sync APIs.
+        sandbox = self._session._create_managed_sandbox(
             container_image=self._container_image,
-            defaults=self._session._defaults,
-            _session=self._session,
             **sandbox_kwargs,
         )
-        self._session._register_sandbox(sandbox)
-        self._session._record_sandbox_created()
         await sandbox._start_async()
 
         logger.debug("Sandbox started for function %s", self._fn.__name__)

@@ -315,6 +315,57 @@ class Session:
         """Deregister a sandbox from tracking."""
         self._sandboxes.pop(id(sandbox), None)
 
+    @classmethod
+    def _sandbox_class(cls) -> type[Sandbox]:
+        """Return the Sandbox class used by this session."""
+        from cwsandbox._sandbox import Sandbox
+
+        return Sandbox
+
+    def _create_managed_sandbox(
+        self,
+        *,
+        command: str | None = None,
+        args: list[str] | None = None,
+        container_image: str | None = None,
+        tags: list[str] | None = None,
+        runway_ids: list[str] | None = None,
+        tower_ids: list[str] | None = None,
+        resources: dict[str, Any] | None = None,
+        mounted_files: list[dict[str, Any]] | None = None,
+        s3_mount: dict[str, Any] | None = None,
+        ports: list[dict[str, Any]] | None = None,
+        network: NetworkOptions | dict[str, Any] | None = None,
+        max_timeout_seconds: int | None = None,
+        environment_variables: dict[str, str] | None = None,
+        annotations: dict[str, str] | None = None,
+        secrets: Sequence[Secret | dict[str, Any]] | None = None,
+    ) -> Sandbox:
+        """Create, register, and account for a managed sandbox."""
+        sandbox_cls = self._sandbox_class()
+        sandbox = sandbox_cls(
+            command=command,
+            args=args,
+            container_image=container_image,
+            tags=tags,
+            runway_ids=runway_ids,
+            tower_ids=tower_ids,
+            resources=resources,
+            mounted_files=mounted_files,
+            s3_mount=s3_mount,
+            ports=ports,
+            network=network,
+            max_timeout_seconds=max_timeout_seconds,
+            environment_variables=environment_variables,
+            annotations=annotations,
+            secrets=secrets,
+            defaults=self._defaults,
+            _session=self,
+        )
+        self._register_sandbox(sandbox)
+        self._record_sandbox_created()
+        return sandbox
+
     def sandbox(
         self,
         *,
@@ -396,9 +447,7 @@ class Session:
                     f"network must be NetworkOptions, dict, or None, got {type(network).__name__}"
                 )
 
-        from cwsandbox._sandbox import Sandbox
-
-        sandbox = Sandbox(
+        return self._create_managed_sandbox(
             command=command,
             args=args,
             container_image=container_image,
@@ -414,13 +463,7 @@ class Session:
             environment_variables=environment_variables,
             annotations=annotations,
             secrets=secrets,
-            defaults=self._defaults,
-            _session=self,
         )
-        self._register_sandbox(sandbox)
-        self._record_sandbox_created()
-
-        return sandbox
 
     def list(
         self,
@@ -501,9 +544,8 @@ class Session:
         adopt: bool = False,
     ) -> builtins.list[Sandbox]:
         """Internal async: List sandboxes, optionally adopting them into this session."""
-        from cwsandbox._sandbox import Sandbox
-
         merged_tags = self._defaults.merge_tags(tags)
+        sandbox_cls = self._sandbox_class()
 
         # Use session's default runway/tower IDs if not overridden
         if runway_ids is not None:
@@ -520,7 +562,7 @@ class Session:
         else:
             effective_tower_ids = None
 
-        sandboxes = await Sandbox._list_async(
+        sandboxes = await sandbox_cls._list_async(
             tags=merged_tags if merged_tags else None,
             status=status,
             runway_ids=effective_runway_ids,
@@ -579,9 +621,8 @@ class Session:
         adopt: bool = True,
     ) -> Sandbox:
         """Internal async: Attach to an existing sandbox, optionally adopting it."""
-        from cwsandbox._sandbox import Sandbox
-
-        sandbox = await Sandbox._from_id_async(
+        sandbox_cls = self._sandbox_class()
+        sandbox = await sandbox_cls._from_id_async(
             sandbox_id,
             base_url=None
             if self._defaults.base_url == DEFAULT_BASE_URL

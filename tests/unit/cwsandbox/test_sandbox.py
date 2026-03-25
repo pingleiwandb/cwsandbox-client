@@ -802,7 +802,7 @@ class TestSandboxAuth:
         with (
             patch("cwsandbox._sandbox.create_channel") as mock_create_channel,
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub") as mock_stub_class,
-            patch("cwsandbox._sandbox.resolve_auth_metadata") as mock_resolve,
+            patch.object(sandbox, "_resolve_auth_metadata") as mock_resolve,
         ):
             mock_resolve.return_value = (("authorization", "Bearer test-api-key"),)
             await sandbox._ensure_client()
@@ -814,6 +814,24 @@ class TestSandboxAuth:
             assert len(call_args[0]) == 2  # only target, is_secure
             assert sandbox._auth_metadata == (("authorization", "Bearer test-api-key"),)
             mock_stub_class.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_instance_auth_hook_can_be_overridden(self, mock_api_key: str) -> None:
+        """Test _ensure_client() uses the instance auth hook."""
+
+        class CustomSandbox(Sandbox):
+            def _resolve_auth_metadata(self) -> tuple[tuple[str, str], ...]:
+                return (("authorization", "Bearer custom-instance-key"),)
+
+        sandbox = CustomSandbox(command="sleep", args=["infinity"])
+
+        with (
+            patch("cwsandbox._sandbox.create_channel"),
+            patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub"),
+        ):
+            await sandbox._ensure_client()
+
+        assert sandbox._auth_metadata == (("authorization", "Bearer custom-instance-key"),)
 
     @pytest.mark.asyncio
     async def test_auth_metadata_passed_to_start_rpc(self, mock_api_key: str) -> None:
@@ -1826,7 +1844,7 @@ class TestSandboxList:
         )
 
         with (
-            patch("cwsandbox._sandbox.resolve_auth_metadata", return_value=expected_metadata),
+            patch.object(Sandbox, "_resolve_auth_metadata_cls", return_value=expected_metadata),
             patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
             patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
@@ -1837,6 +1855,7 @@ class TestSandboxList:
             assert isinstance(sandboxes[0], Sandbox)
             assert sandboxes[0].sandbox_id == "test-123"
             assert sandboxes[0].status == "running"
+            assert sandboxes[0]._auth_metadata == expected_metadata
             call_kwargs = mock_stub.List.call_args[1]
             assert call_kwargs["metadata"] == expected_metadata
 
@@ -1852,7 +1871,7 @@ class TestSandboxList:
         mock_stub.List = AsyncMock(return_value=atc_pb2.ListSandboxesResponse(sandboxes=[]))
 
         with (
-            patch("cwsandbox._sandbox.resolve_auth_metadata", return_value=expected_metadata),
+            patch.object(Sandbox, "_resolve_auth_metadata_cls", return_value=expected_metadata),
             patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
             patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
@@ -1900,7 +1919,7 @@ class TestSandboxList:
         mock_stub.List = AsyncMock(return_value=atc_pb2.ListSandboxesResponse(sandboxes=[]))
 
         with (
-            patch("cwsandbox._sandbox.resolve_auth_metadata", return_value=expected_metadata),
+            patch.object(Sandbox, "_resolve_auth_metadata_cls", return_value=expected_metadata),
             patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
             patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
@@ -1957,7 +1976,7 @@ class TestSandboxFromId:
         mock_stub.Get = AsyncMock(return_value=mock_response)
 
         with (
-            patch("cwsandbox._sandbox.resolve_auth_metadata", return_value=expected_metadata),
+            patch.object(Sandbox, "_resolve_auth_metadata_cls", return_value=expected_metadata),
             patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
             patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
@@ -1968,6 +1987,7 @@ class TestSandboxFromId:
             assert sandbox.sandbox_id == "test-123"
             assert sandbox.status == "running"
             assert sandbox.tower_id == "tower-1"
+            assert sandbox._auth_metadata == expected_metadata
             call_kwargs = mock_stub.Get.call_args[1]
             assert call_kwargs["metadata"] == expected_metadata
 
@@ -2005,7 +2025,7 @@ class TestSandboxDeleteClassMethod:
         mock_stub.Delete = AsyncMock(return_value=mock_response)
 
         with (
-            patch("cwsandbox._sandbox.resolve_auth_metadata", return_value=expected_metadata),
+            patch.object(Sandbox, "_resolve_auth_metadata_cls", return_value=expected_metadata),
             patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
             patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
             patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),

@@ -299,6 +299,23 @@ class TestSessionSandboxMethod:
         with pytest.raises(SandboxError, match="session is closed"):
             session.sandbox(command="sleep", args=["infinity"])
 
+    def test_sandbox_uses_configured_sandbox_class(self) -> None:
+        """Test session.sandbox() uses the overridable sandbox factory."""
+
+        class CustomSandbox(Sandbox):
+            pass
+
+        class CustomSession(Session):
+            @classmethod
+            def _sandbox_class(cls) -> type[Sandbox]:
+                return CustomSandbox
+
+        session = CustomSession()
+        sandbox = session.sandbox(command="sleep", args=["infinity"])
+
+        assert isinstance(sandbox, CustomSandbox)
+        assert sandbox._session is session
+
 
 class TestSessionSyncContextManager:
     """Tests for Session sync context manager."""
@@ -378,10 +395,11 @@ class TestSessionFunctionDecorator:
         result_json = json.dumps(5).encode()
         mock_sandbox.read_file = MagicMock(return_value=make_operation_ref(result_json))
 
-        with patch("cwsandbox._sandbox.Sandbox", return_value=mock_sandbox):
+        with patch.object(session, "_create_managed_sandbox", return_value=mock_sandbox) as mock_create:
             result = await add.remote(2, 3)
 
             assert result == 5
+            mock_create.assert_called_once_with(container_image=None)
 
     @pytest.mark.asyncio
     async def test_function_decorator_with_closure_variables(self) -> None:
@@ -404,10 +422,11 @@ class TestSessionFunctionDecorator:
         result_json = json.dumps(50).encode()
         mock_sandbox.read_file = MagicMock(return_value=make_operation_ref(result_json))
 
-        with patch("cwsandbox._sandbox.Sandbox", return_value=mock_sandbox):
+        with patch.object(session, "_create_managed_sandbox", return_value=mock_sandbox) as mock_create:
             result = await compute_with_closure.remote(5)
 
             assert result == 50
+            mock_create.assert_called_once_with(container_image=None)
 
             write_call = mock_sandbox.write_file.call_args
             payload_bytes = write_call[0][1]
@@ -636,6 +655,49 @@ class TestSessionList:
             call_args = mock_stub.List.call_args[0][0]
             assert call_args.include_stopped is True
 
+    @pytest.mark.asyncio
+    async def test_list_uses_configured_sandbox_class(self, mock_api_key: str) -> None:
+        """Test session.list() returns instances of the configured sandbox class."""
+        from google.protobuf import timestamp_pb2
+
+        from cwsandbox._proto import atc_pb2
+
+        class CustomSandbox(Sandbox):
+            pass
+
+        class CustomSession(Session):
+            @classmethod
+            def _sandbox_class(cls) -> type[Sandbox]:
+                return CustomSandbox
+
+        sandbox_info = atc_pb2.SandboxInfo(
+            sandbox_id="test-123",
+            sandbox_status=atc_pb2.SANDBOX_STATUS_RUNNING,
+            started_at_time=timestamp_pb2.Timestamp(seconds=1234567890),
+            tower_id="tower-1",
+            tower_group_id="group-1",
+            runway_id="runway-1",
+        )
+
+        session = CustomSession()
+
+        mock_channel = MagicMock()
+        mock_channel.close = AsyncMock()
+        mock_stub = MagicMock()
+        mock_stub.List = AsyncMock(
+            return_value=atc_pb2.ListSandboxesResponse(sandboxes=[sandbox_info])
+        )
+
+        with (
+            patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
+            patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
+            patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
+        ):
+            sandboxes = await session.list()
+
+        assert len(sandboxes) == 1
+        assert isinstance(sandboxes[0], CustomSandbox)
+
 
 class TestSessionFromId:
     """Tests for Session.from_id method."""
@@ -737,6 +799,46 @@ class TestSessionFromId:
             await session.from_id("test-123", adopt=False)
 
             assert session.sandbox_count == 0
+
+    @pytest.mark.asyncio
+    async def test_from_id_uses_configured_sandbox_class(self, mock_api_key: str) -> None:
+        """Test session.from_id() returns the configured sandbox class."""
+        from google.protobuf import timestamp_pb2
+
+        from cwsandbox._proto import atc_pb2
+
+        class CustomSandbox(Sandbox):
+            pass
+
+        class CustomSession(Session):
+            @classmethod
+            def _sandbox_class(cls) -> type[Sandbox]:
+                return CustomSandbox
+
+        response = atc_pb2.GetSandboxResponse(
+            sandbox_id="test-123",
+            sandbox_status=atc_pb2.SANDBOX_STATUS_RUNNING,
+            started_at_time=timestamp_pb2.Timestamp(seconds=1234567890),
+            tower_id="tower-1",
+            tower_group_id="group-1",
+            runway_id="runway-1",
+        )
+
+        session = CustomSession()
+
+        mock_channel = MagicMock()
+        mock_channel.close = AsyncMock()
+        mock_stub = MagicMock()
+        mock_stub.Get = AsyncMock(return_value=response)
+
+        with (
+            patch("cwsandbox._sandbox.parse_grpc_target", return_value=("test:443", True)),
+            patch("cwsandbox._sandbox.create_channel", return_value=mock_channel),
+            patch("cwsandbox._sandbox.atc_pb2_grpc.ATCServiceStub", return_value=mock_stub),
+        ):
+            sandbox = await session.from_id("test-123")
+
+        assert isinstance(sandbox, CustomSandbox)
 
 
 class TestSessionAdopt:

@@ -712,6 +712,15 @@ class Sandbox:
         return sandbox
 
     @classmethod
+    def _resolve_auth_metadata_cls(cls) -> tuple[tuple[str, str], ...]:
+        """Resolve auth metadata for class-level RPCs."""
+        return resolve_auth_metadata()
+
+    def _resolve_auth_metadata(self) -> tuple[tuple[str, str], ...]:
+        """Resolve auth metadata for instance RPCs."""
+        return type(self)._resolve_auth_metadata_cls()
+
+    @classmethod
     def list(
         cls,
         *,
@@ -804,7 +813,7 @@ class Sandbox:
         if status is not None:
             status_enum = SandboxStatus(status)
 
-        auth_metadata = resolve_auth_metadata()
+        auth_metadata = cls._resolve_auth_metadata_cls()
 
         target, is_secure = parse_grpc_target(effective_base_url)
         channel = create_channel(target, is_secure)
@@ -829,7 +838,7 @@ class Sandbox:
             except grpc.RpcError as e:
                 raise _translate_rpc_error(e, operation="List sandboxes") from e
 
-            return [
+            sandboxes = [
                 cls._from_sandbox_info(
                     sb,
                     base_url=effective_base_url,
@@ -837,6 +846,9 @@ class Sandbox:
                 )
                 for sb in response.sandboxes
             ]
+            for sandbox in sandboxes:
+                sandbox._auth_metadata = auth_metadata
+            return sandboxes
         finally:
             await channel.close(grace=None)
 
@@ -902,7 +914,7 @@ class Sandbox:
             timeout_seconds if timeout_seconds is not None else DEFAULT_REQUEST_TIMEOUT_SECONDS
         )
 
-        auth_metadata = resolve_auth_metadata()
+        auth_metadata = cls._resolve_auth_metadata_cls()
 
         target, is_secure = parse_grpc_target(effective_base_url)
         channel = create_channel(target, is_secure)
@@ -915,11 +927,13 @@ class Sandbox:
             except grpc.RpcError as e:
                 raise _translate_rpc_error(e, sandbox_id=sandbox_id, operation="Get sandbox") from e
 
-            return cls._from_sandbox_info(
+            sandbox = cls._from_sandbox_info(
                 response,
                 base_url=effective_base_url,
                 timeout_seconds=timeout,
             )
+            sandbox._auth_metadata = auth_metadata
+            return sandbox
         finally:
             await channel.close(grace=None)
 
@@ -992,7 +1006,7 @@ class Sandbox:
             timeout_seconds if timeout_seconds is not None else DEFAULT_REQUEST_TIMEOUT_SECONDS
         )
 
-        auth_metadata = resolve_auth_metadata()
+        auth_metadata = cls._resolve_auth_metadata_cls()
 
         target, is_secure = parse_grpc_target(effective_base_url)
         channel = create_channel(target, is_secure)
@@ -1446,7 +1460,7 @@ class Sandbox:
         if self._channel is not None:
             return
 
-        auth_metadata = resolve_auth_metadata()
+        auth_metadata = self._resolve_auth_metadata()
         target, is_secure = parse_grpc_target(self._base_url)
         channel = create_channel(target, is_secure)
         stub = atc_pb2_grpc.ATCServiceStub(channel)  # type: ignore[no-untyped-call]

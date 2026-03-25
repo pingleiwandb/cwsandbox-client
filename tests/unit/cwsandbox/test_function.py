@@ -559,9 +559,8 @@ class TestRemoteFunction:
             coro.close()  # Close coroutine to prevent unawaited warning
             return mock_future
 
-        session._loop_manager.run_async = MagicMock(side_effect=mock_run_async)
-
-        ref = remote_fn.remote(2, 3)
+        with patch.object(session._loop_manager, "run_async", side_effect=mock_run_async):
+            ref = remote_fn.remote(2, 3)
 
         assert isinstance(ref, OperationRef)
 
@@ -597,9 +596,8 @@ class TestRemoteFunction:
             coro.close()  # Close coroutine to prevent unawaited warning
             return mock_future
 
-        session._loop_manager.run_async = MagicMock(side_effect=mock_run_async)
-
-        refs = remote_fn.map([(1, 2), (3, 4), (5, 6)])
+        with patch.object(session._loop_manager, "run_async", side_effect=mock_run_async):
+            refs = remote_fn.map([(1, 2), (3, 4), (5, 6)])
 
         assert len(refs) == 3
         assert all(isinstance(ref, OperationRef) for ref in refs)
@@ -673,10 +671,11 @@ class TestRemoteFunction:
         result_json = json.dumps(5).encode()
         mock_sandbox.read_file = MagicMock(return_value=make_operation_ref(result_json))
 
-        with patch("cwsandbox._sandbox.Sandbox", return_value=mock_sandbox):
+        with patch.object(session, "_create_managed_sandbox", return_value=mock_sandbox) as mock_create:
             result = await remote_fn._execute_async(2, 3)
 
             assert result == 5
+            mock_create.assert_called_once_with(container_image=None)
             mock_sandbox._start_async.assert_called_once()
             mock_sandbox.write_file.assert_called_once()
             mock_sandbox.exec.assert_called_once()
@@ -710,7 +709,7 @@ class TestRemoteFunction:
             return_value=make_process(returncode=1, stderr="RuntimeError: boom")
         )
 
-        with patch("cwsandbox._sandbox.Sandbox", return_value=mock_sandbox):
+        with patch.object(session, "_create_managed_sandbox", return_value=mock_sandbox):
             with pytest.raises(SandboxExecutionError, match="execution failed"):
                 await remote_fn._execute_async()
 
@@ -832,11 +831,10 @@ class TestRemoteFunctionAnnotations:
         result_json = json.dumps(5).encode()
         mock_sandbox.read_file = MagicMock(return_value=make_operation_ref(result_json))
 
-        with patch("cwsandbox._sandbox.Sandbox") as MockSandbox:
-            MockSandbox.return_value = mock_sandbox
+        with patch.object(session, "_create_managed_sandbox", return_value=mock_sandbox) as mock_create:
             await remote_fn._execute_async(2, 3)
 
-            call_kwargs = MockSandbox.call_args[1]
+            call_kwargs = mock_create.call_args[1]
             assert call_kwargs["annotations"] == {"team": "platform"}
 
     def test_session_function_decorator_with_annotations(self) -> None:
