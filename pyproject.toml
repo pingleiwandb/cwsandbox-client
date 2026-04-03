@@ -38,8 +38,13 @@ cwsandbox = "cwsandbox.__main__:main"
 cli = [
     "click>=8.2",
 ]
+tui = [
+    "click>=8.2",
+    "textual>=8.2.2",
+]
 dev = [
     "click>=8.2",
+    "textual>=8.2.2",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",

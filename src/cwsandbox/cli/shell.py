@@ -35,30 +35,8 @@ def _validate_cmd(ctx: click.Context, param: click.Parameter, value: str) -> str
     return value
 
 
-@click.command()
-@click.argument("sandbox_id")
-@click.option(
-    "--cmd",
-    default="/bin/bash",
-    callback=_validate_cmd,
-    help="Command to run (default: /bin/bash). Accepts full command strings.",
-)
-def shell(sandbox_id: str, cmd: str) -> None:
-    """Open an interactive shell in a sandbox.
-
-    SANDBOX_ID is the ID of the sandbox to connect to.
-
-    The terminal runs in raw mode, so Ctrl+C is forwarded to the remote
-    process instead of exiting locally. To exit, type 'exit' or press Ctrl+D.
-
-    Examples:
-
-        cwsandbox sh <sandbox-id>
-
-        cwsandbox sh <sandbox-id> --cmd /bin/zsh
-
-        cwsandbox sh <sandbox-id> --cmd "python main.py"
-    """
+def run_shell_session(sandbox_id: str, cmd: str) -> int:
+    """Run an interactive shell session and return the remote exit code."""
     if platform.system() == "Windows":
         raise click.ClickException("Interactive shell is not supported on Windows.")
 
@@ -141,4 +119,31 @@ def shell(sandbox_id: str, cmd: str) -> None:
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_settings)
         signal.signal(signal.SIGWINCH, old_sigwinch)
 
-    sys.exit(exit_code)
+    return exit_code
+
+
+@click.command()
+@click.argument("sandbox_id")
+@click.option(
+    "--cmd",
+    default="/bin/bash",
+    callback=_validate_cmd,
+    help="Command to run (default: /bin/bash). Accepts full command strings.",
+)
+def shell(sandbox_id: str, cmd: str) -> None:
+    """Open an interactive shell in a sandbox.
+
+    SANDBOX_ID is the ID of the sandbox to connect to.
+
+    The terminal runs in raw mode, so Ctrl+C is forwarded to the remote
+    process instead of exiting locally. To exit, type 'exit' or press Ctrl+D.
+
+    Examples:
+
+        cwsandbox sh <sandbox-id>
+
+        cwsandbox sh <sandbox-id> --cmd /bin/zsh
+
+        cwsandbox sh <sandbox-id> --cmd "python main.py"
+    """
+    sys.exit(run_shell_session(sandbox_id, cmd))
